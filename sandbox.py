@@ -1,24 +1,13 @@
-from tabpfn_client import TabPFNClassifier, init
-import tabpfn_client
-from sklearn.datasets import load_iris
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
-init()
-import tabpfn_client
-# Get your token
-token = tabpfn_client.get_access_token()
+import os
+import pandas as pd
+import numpy as np
+import json
 
-tabpfn_client.set_access_token(token)
-# Load the Iris dataset
-X, y = load_iris(return_X_y=True)
+with open('universal_config.json', 'r') as f:
+    config = json.load(f)
+symbols_dict= config['symbols']
+most_frequent=sorted(symbols_dict.items(), key=lambda x: x[1], reverse=True)[:1]
+symbols= [x[0] for x in most_frequent]
 
-# Split data
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-# Initialize and train classifier
-classifier = TabPFNClassifier(device='cuda', N_ensemble_configurations=10)
-classifier.fit(X_train, y_train)
-
-# Evaluate
-y_pred = classifier.predict(X_test)
-print('Test Accuracy:', accuracy_score(y_test, y_pred))
+for symbol in symbols:
+    df=pd.read_csv(f'{symbol}_spot_full.csv')
