@@ -1,27 +1,103 @@
 
-# Volatility-Inference-with-SDEs-Data-Assimilation
+# Volatility Inference with SDEs and Bayesian Filtering
 
-This project implements two distinct volatility estimation pipelines combining stochastic differential equations (SDEs) with Bayesian filtering techniques for cryptocurrency data analysis.
+This project implements two volatility esti### Key Findings:
+- **Pipeline 1 (Instantaneous)**: Kalman Heston achieves near-perfect performance (R² ≈ 0.9998) for real-time volatility inference
+- **Pipeline 2 (Rolling)**: Both Kalman and Particle Filter DA methods achieve R² > 0.99 for smoothed volatility estimation
+- **Bayesian filtering methods** substantially outperform traditional GARCH models in both pipelines
+- **Particle Filter** shows robust performance across different volatility proxies and time scales
+- **Traditional methods** (Naive DA, GARCH) provide limited explanatory power compared to SDE-based approachesn pipelines for cryptocurrency data, combining stochastic differential equations (SDEs) with Bayesian filtering techniques to produce real-time and smoothed volatility estimates.
 
 ## Methodology Overview
 
 ### Pipeline 1: Instantaneous Volatility Inference
-**Approach**: Heston-lite SDE model + Bayesian filtering with absolute log returns as instantaneous volatility proxy
-- **Model**: dσ = κ(θ - σ)dt + ξdW (Heston-lite dynamics)
-- **Ground Truth**: |log returns| as proxy for instantaneous volatility
-- **Methods**: Naive DA, Generic DA, Kalman Filter, Particle Filter
-- **Output**: Real-time volatility estimates capturing instantaneous market dynamics
+- **Approach**: Heston-lite SDE model with Euler–Maruyama discretization + Bayesian filtering  
+- **Model**:  
+```
+dS_t = μ S_t dt + σ_t S_t dW^S_t
+dσ_t = κ(θ - σ_t) dt + ξ dW^σ_t
+```
+- **Ground Truth**: Absolute log returns `|log(S_t / S_{t-1})|` as a proxy for instantaneous volatility  
+- **Methods**: Naive Data Assimilation, Generic DA, Kalman Filter, Particle Filter  
+- **Output**: Real-time volatility estimates capturing rapid market dynamics  
 
-### Pipeline 2: Rolling Volatility Estimation  
-**Approach**: Mean-reverting SDE model + Bayesian filtering with rolling standard deviation as volatility proxy
-- **Model**: Generic mean-reverting process (non-Heston)
-- **Ground Truth**: Rolling window standard deviation (20/50/100 periods)
-- **Methods**: Kalman Filter, Particle Filter with mean-reverting dynamics
-- **Output**: Smoothed volatility estimates suitable for risk management
+### Pipeline 2: Rolling Volatility Estimation
+- **Approach**: Ornstein–Uhlenbeck (OU) mean-reverting SDE model + Bayesian filtering  
+- **Model**: Mean-reverting volatility dynamics with long-term equilibrium:
+```
+dσ_t = κ(θ - σ_t) dt + ξ dW_t
+```
+  where `κ` = mean reversion speed, `θ` = long-term volatility mean, `ξ` = volatility of volatility
+- **Ground Truth**: Rolling standard deviation computed over 100-period windows  
+- **Methods**: Kalman Filter, Particle Filter with Bayesian state estimation for smoothed volatility tracking  
+- **Discretization**: Euler-Maruyama scheme with adaptive time step `dt = 1/1440` (minute-level resolution)  
+- **Output**: Smoothed volatility estimates capturing mean-reverting behavior, ideal for risk management and forecasting  
 
-Both pipelines leverage advanced Bayesian filtering to combine prior SDE model predictions with observed data, achieving superior performance compared to traditional GARCH models.
+## Key Features
+- Combines SDE-based modeling with Bayesian filtering techniques
+- Real-time and smoothed volatility estimation
+- More adaptive and accurate than traditional GARCH models
+- Euler–Maruyama discretization for SDE numerical integration
+- Systematic validation against GARCH benchmarks across multiple cryptocurrencies
+
+## Quick Start
+
+### Pipeline 1: Instantaneous Volatility (Heston-lite)
+```python
+from DA_utility_heston import kalman_heston_DA, particle_filter_heston_DA
+import pandas as pd
+
+# Load cryptocurrency data
+df = pd.read_csv('BTC_spot_full.csv')
+prices = df['bam_close']
+
+# Kalman Filter with Heston-lite dynamics
+sigma_model, sigma_est = kalman_heston_DA(
+    prices, kappa=2.0, theta=None, xi=0.3, dt=1/1440, R=1e-4, Q=0.01
+)
+
+# Particle Filter with Heston-lite dynamics
+sigma_model_pf, sigma_est_pf = particle_filter_heston_DA(
+    prices, kappa=2.0, xi=0.3, N_particles=150, R=0.001
+)
+```
+
+### Pipeline 2: Rolling Volatility (Mean-Reverting)
+```python
+from DA_utility import kalman_DA, particle_filter_DA, compute_rolling_volatility
+import pandas as pd
+
+# Load data and compute rolling volatility
+df = pd.read_csv('BTC_spot_full.csv')
+returns = df['bam_close'].pct_change().fillna(0)
+sigma_obs = compute_rolling_volatility(returns, window=100)
+
+# Kalman Filter for rolling volatility
+sigma_model_kf, sigma_est_kf = kalman_DA(
+    sigma_obs, kappa=2.0, xi=0.3, dt=1/1440, R=1e-4
+)
+
+# Particle Filter for rolling volatility  
+sigma_model_pf, sigma_est_pf = particle_filter_DA(
+    sigma_obs, kappa=2.0, xi=0.3, N_particles=200, R=0.001
+)
+```
 
 ## Performance Results
+
+### Pipeline 1: Instantaneous Volatility Inference (Heston-lite + Bayesian Filtering)
+Performance metrics using absolute log returns as ground truth for instantaneous volatility:
+
+| Symbol | Naive Heston MSE | Naive Heston R² | Generic Heston MSE | Generic Heston R² | Kalman Heston MSE | Kalman Heston R² | Particle Filter MSE | Particle Filter R² | Rolling Vol (20) R² |
+|--------|------------------|-----------------|--------------------|--------------------|-------------------|------------------|---------------------|-------------------|---------------------|
+| BNB    | 0.001833         | -33.23          | 0.000672           | -11.55             | 8.30e-09         | 0.9998           | 2.06e-05           | 0.615             | 0.173               |
+| BTC    | 0.001437         | -43.87          | 0.001303           | -39.68             | 5.33e-09         | 0.9998           | 1.05e-05           | 0.673             | 0.088               |
+| TRX    | 0.001737         | -28.41          | 0.001125           | -18.05             | 8.76e-09         | 0.9999           | 2.67e-05           | 0.547             | 0.169               |
+| XRP    | 0.001888         | -21.50          | 0.000947           | -10.28             | 1.27e-08         | 0.9998           | 4.36e-05           | 0.481             | 0.151               |
+| ETH    | 0.001481         | -30.01          | 0.000845           | -16.69             | 8.01e-09         | 0.9998           | 1.74e-05           | 0.635             | 0.115               |
+
+### Pipeline 2: Rolling Volatility Estimation (Mean-reverting + Bayesian Filtering)
+Performance metrics using rolling standard deviation (100 periods) as ground truth:
 
 The following table shows Mean Squared Error (MSE) and R² scores for **Pipeline 2** (rolling volatility estimation) across five cryptocurrencies:
 
@@ -86,100 +162,3 @@ The following table shows Mean Squared Error (MSE) and R² scores for **Pipeline
     - `instantaneous_volatility_results.csv` - Pipeline 1 comprehensive results
     - `instantaneous_volatility_performance.csv` - Pipeline 1 performance analysis
 
-## Usage
-
-### Pipeline 1: Instantaneous Volatility (Heston-lite + Bayesian Filtering)
-```bash
-python main4.py          # Batch processing all cryptocurrencies
-python main2_heston.py   # Detailed visualization for single asset
-```
-
-### Pipeline 2: Rolling Volatility (Mean-reverting + Bayesian Filtering)  
-```bash
-python main3.py          # Batch performance evaluation
-python main2.py          # Comprehensive visualization and analysis
-```
-
-## Technical Innovation
-
-This framework advances financial volatility modeling by:
-1. **Dual-proxy approach**: Instantaneous (|log returns|) vs smoothed (rolling std) volatility
-2. **SDE-Bayesian integration**: Principled combination of stochastic model priors with observed data
-3. **Real-time inference**: Particle filtering enables non-linear, non-Gaussian volatility dynamics
-4. **Comparative validation**: Systematic evaluation against GARCH benchmarks across multiple assets
-
-The results demonstrate that SDE-based Bayesian filtering substantially outperforms traditional econometric approaches for cryptocurrency volatility estimation.
-     - `simulate_garch()`: GARCH(1,1) volatility simulation
-     - `simulate_heston_lite()`: Heston-lite stochastic volatility model
-
-6. **utility.py**
-   - **General utility functions** for:
-     - Data collection and processing
-     - Basic plotting and visualization
-     - Volatility calculation helpers
-
-### Data and Configuration
-7. **data_collection.py**
-   - Script for collecting and preparing spot price data from raw sources
-
-8. **universal_config.json**
-   - Configuration file for symbols and other universal settings
-
-9. **requirements.txt**
-   - Python dependencies: pandas, numpy, matplotlib, scikit-learn, arch, etc.
-
-### Data Files
-10. **Cryptocurrency Data CSV Files:**
-    - `BTC_spot_full.csv` - Bitcoin hourly spot price data
-    - `ETH_spot_full.csv` - Ethereum hourly spot price data  
-    - `BNB_spot_full.csv` - Binance Coin hourly spot price data
-    - `XRP_spot_full.csv` - Ripple hourly spot price data
-    - `TRX_spot_full.csv` - Tron hourly spot price data
-
-11. **mse_results.csv**
-    - Generated results file containing MSE and R² scores for all methods and symbols
-
-### Development and Experimentation
-12. **notebooks/**
-    - Directory containing Jupyter notebooks for development and analysis:
-    - `demo_experiment.ipynb` - Demonstration experiments and prototyping
-
-13. **src/** (Alternative organized structure)
-    - `config.py` - Configuration management
-    - `pipeline.py` - Processing pipeline
-    - `filters/` - Filter implementations (EnKF, Particle Filter)
-    - `models/` - Model implementations (crypto fetcher, SDE simulator)
-    - `utils/` - Utility functions (metrics, plotting)
-
-## Usage
-
-### Quick Analysis (Recommended)
-```bash
-python main3.py
-```
-Runs MSE/R² analysis on all cryptocurrencies and saves results to CSV.
-
-### Detailed Analysis with Plots
-```bash
-python main2.py
-```
-Generates comprehensive plots and analysis for a single cryptocurrency (XRP by default).
-
-### Individual Experiments
-```bash
-python main.py
-```
-Original experimental script for custom analysis.
-
-## Dependencies
-Install required packages:
-```bash
-pip install -r requirements.txt
-```
-
-Key dependencies include:
-- `pandas`, `numpy` - Data processing
-- `matplotlib` - Visualization  
-- `scikit-learn` - Machine learning metrics
-- `arch` - GARCH modeling
-- Custom modules for data assimilation methods

@@ -85,61 +85,26 @@ def infer_instantaneous_volatility(symbol):
     
     return results_df
 
-def save_instantaneous_volatility_results(all_results_df, filename='instantaneous_volatility_results.csv'):
+def calculate_performance_metrics(all_results):
     """
-    Save instantaneous volatility results to CSV file.
+    Calculate performance metrics from results dataframes without saving large CSV.
     
     Args:
-        all_results_df (pd.DataFrame): Combined results for all symbols
-        filename (str): Output CSV filename
+        all_results (list): List of dataframes from infer_instantaneous_volatility
+    
+    Returns:
+        pd.DataFrame: Performance metrics for all symbols
     """
-    # Reorder columns for better readability
-    column_order = [
-        'symbol', 'timestamp', 'price', 'log_return', 'abs_log_return',
-        'rolling_vol_20', 'rolling_vol_50', 'rolling_vol_100',
-        'heston_naive_model', 'heston_naive_est',
-        'heston_generic_model', 'heston_generic_est', 
-        'heston_kalman_model', 'heston_kalman_est',
-        'heston_pf_model', 'heston_pf_est'
-    ]
-    
-    # Reorder columns if they exist
-    existing_columns = [col for col in column_order if col in all_results_df.columns]
-    all_results_df = all_results_df[existing_columns]
-    
-    # Save to CSV
-    all_results_df.to_csv(filename, index=False)
-    print(f"Results saved to {filename}")
-    
-    # Print summary statistics
-    print(f"\nSummary Statistics:")
-    print(f"Total data points: {len(all_results_df)}")
-    print(f"Symbols processed: {all_results_df['symbol'].nunique()}")
-    print(f"Symbols: {list(all_results_df['symbol'].unique())}")
-    
-    # Show sample of instantaneous volatility estimates
-    print(f"\nSample Instantaneous Volatility Estimates (Last 5 Hours):")
-    for symbol in all_results_df['symbol'].unique():
-        symbol_data = all_results_df[all_results_df['symbol'] == symbol]
-        recent_data = symbol_data.tail(5)
-        print(f"\n{symbol} (last 5 observations):")
-        print(f"  Naive Heston:     {recent_data['heston_naive_est'].mean():.6f}")
-        print(f"  Generic Heston:   {recent_data['heston_generic_est'].mean():.6f}")
-        print(f"  Kalman Heston:    {recent_data['heston_kalman_est'].mean():.6f}")
-        print(f"  Particle Filter:  {recent_data['heston_pf_est'].mean():.6f}")
-        print(f"  Rolling Vol (20): {recent_data['rolling_vol_20'].mean():.6f}")
-    
-    # Calculate comprehensive performance metrics across ALL data
-    print(f"\nComprehensive Performance Analysis (All {len(all_results_df)} observations):")
-    print("=" * 80)
+    print(f"\nCalculating Performance Metrics...")
+    print("=" * 60)
     
     performance_results = []
     
-    for symbol in all_results_df['symbol'].unique():
-        symbol_data = all_results_df[all_results_df['symbol'] == symbol]
+    for results_df in all_results:
+        symbol = results_df['symbol'].iloc[0]
         
         # Use absolute log returns as ground truth for instantaneous volatility
-        ground_truth = symbol_data['abs_log_return']
+        ground_truth = results_df['abs_log_return']
         
         # Calculate MSE for each method
         methods = {
@@ -158,8 +123,8 @@ def save_instantaneous_volatility_results(all_results_df, filename='instantaneou
         print("-" * 40)
         
         for method_name, column_name in methods.items():
-            if column_name in symbol_data.columns:
-                predictions = symbol_data[column_name]
+            if column_name in results_df.columns:
+                predictions = results_df[column_name]
                 
                 # Remove NaN values for calculation
                 mask = (~np.isnan(ground_truth)) & (~np.isnan(predictions))
@@ -179,7 +144,7 @@ def save_instantaneous_volatility_results(all_results_df, filename='instantaneou
         
         performance_results.append(symbol_perf)
     
-    # Save performance results to separate CSV
+    # Save performance results
     if performance_results:
         perf_df = pd.DataFrame(performance_results)
         perf_df.to_csv('instantaneous_volatility_performance.csv', index=False)
@@ -196,6 +161,10 @@ def save_instantaneous_volatility_results(all_results_df, filename='instantaneou
                 best_r2 = row[best_method]
                 method_name = best_method.replace('r2_', '').replace('_', ' ').title()
                 print(f"  {symbol}: {method_name} (R² = {best_r2:.6f})")
+        
+        return perf_df
+    
+    return None
 
 if __name__ == "__main__":
     # List of symbols to process
@@ -218,20 +187,15 @@ if __name__ == "__main__":
         print("-" * 50)
     
     if all_results:
-        # Combine all results
-        print("\nCombining results from all symbols...")
-        combined_results = pd.concat(all_results, ignore_index=True)
-        
-        # Save to CSV
-        save_instantaneous_volatility_results(combined_results)
+        # Calculate performance metrics directly without saving large CSV
+        print("\nCalculating comprehensive performance metrics...")
+        performance_df = calculate_performance_metrics(all_results)
         
         print("\n" + "=" * 80)
-        print("Instantaneous volatility inference completed!")
-        print("Results saved to 'instantaneous_volatility_results.csv'")
+        print("Instantaneous volatility analysis completed!")
+        print("Performance metrics saved to 'instantaneous_volatility_performance.csv'")
         
-        # Show file info
-        if os.path.exists('instantaneous_volatility_results.csv'):
-            file_size = os.path.getsize('instantaneous_volatility_results.csv') / 1024 / 1024  # MB
-            print(f"Output file size: {file_size:.2f} MB")
+        if performance_df is not None:
+            print(f"\nProcessed {len(all_results)} symbols with {sum(len(df) for df in all_results)} total observations")
     else:
-        print("No results to save - all symbols failed processing.")
+        print("No results to process - all symbols failed.")
