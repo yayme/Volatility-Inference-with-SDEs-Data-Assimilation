@@ -103,3 +103,9 @@
 - Request: reorder README so rolling appears before instantaneous in approach, methodology, and results.
 - Fix: reordered sections accordingly and updated run command order.
 - Added summary note: instantaneous volatility attempt (log-return proxy based) is currently unreliable under extreme crypto fluctuations.
+
+### Incremental Update
+
+- Request: rewrite `research_report.tex` based on current methodology/results and keep it under 2 pages.
+- Fix: replaced long draft with a concise updated report emphasizing lag-aware rolling methodology first, then instantaneous proxy attempt.
+- Included: strict evaluation protocol changes, legacy-vs-current rolling interpretation, BTC/ETH snapshot table, and short future-work section.
