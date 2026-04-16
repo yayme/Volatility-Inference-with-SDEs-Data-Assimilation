@@ -2,20 +2,23 @@
 
 ## Summary Conclusion
 Volatility in crypto markets is difficult to predict because of rapid sentiment shifts, liquidity shocks, leverage cascades, and fast regime changes in market microstructure.
-This exploratory project studies online volatility estimation using a classic SDE state model with Kalman/Particle filtering under lag-aware evaluation.
+This exploratory project studies online volatility estimation using a classic SDE state model with Kalman/Particle filtering under lag aware evaluation.
+
+The rolling-volatility pipeline is the primary approach in this repository.
+We also attempted instantaneous volatility estimation using log return as a proxy for the latent variable, but under extreme crypto fluctuations this attempt did not produce reliable performance.
 
 Current experiments use mid-price based returns for simplicity and tractability.
 Future work should incorporate sentiment/news signals, order-book and flow features, and multidimensional state-space models for improved robustness.
 
 ## Approach Summary
 
-### Pipeline 1: Instantaneous Volatility (Heston-lite)
-Infers latent volatility from price returns using a mean-reverting stochastic volatility state and Bayesian updates.
-Evaluated against a scaled instantaneous proxy: `|log-return| * sqrt(pi/2)`.
-
 ### Pipeline 2: Rolling Volatility (Lagged)
 Tracks smoothed volatility with a mean reverting state model and filtering under strict lag separation.
 DA methods observe lagged rolling volatility, while scoring is done on the current rolling target.
+
+### Pipeline 1: Instantaneous Volatility (Heston-lite)
+Infers latent volatility from price returns using a mean-reverting stochastic volatility state and Bayesian updates.
+Evaluated against a scaled instantaneous proxy: `|log-return| * sqrt(pi/2)`.
 
 ## Methodology
 
@@ -35,17 +38,17 @@ $$
 
 ### 2) Observation Models
 
-Instantaneous proxy target:
-
-$$
-y_t^{(inst)} = \left|\log\frac{S_t}{S_{t-1}}\right|\sqrt{\frac{\pi}{2}}
-$$
-
 Rolling target (window `w`) with lag-aware DA observation (`L`):
 
 $$
 y_t^{(roll)} = \operatorname{std}(r_{t-w+1:t}),
 \quad z_t^{(DA)} = y_{t-L}^{(roll)}
+$$
+
+Instantaneous proxy target:
+
+$$
+y_t^{(inst)} = \left|\log\frac{S_t}{S_{t-1}}\right|\sqrt{\frac{\pi}{2}}
 $$
 
 ### 3) Kalman Filter (scalar)
@@ -97,13 +100,13 @@ $$
 
 ## Current BTC/ETH Results Snapshot
 
-### Instantaneous (scaled proxy)
-Source: `inst_results_scaled.csv`
+### Rolling (current, lag-aware: window=20, lag=20)
+Source: `rolling_results_lagged.csv`
 
-| Symbol | Kalman Heston R2 | Particle Heston R2 | Rolling(20) R2 |
-|--------|-------------------|--------------------|----------------|
-| BTC    | -0.202            | -0.024             | 0.100          |
-| ETH    | -0.208            | -0.017             | 0.126          |
+| Symbol | Kalman DA R2 | Particle Filter R2 | GARCH(2,2) R2 |
+|--------|---------------|--------------------|---------------|
+| BTC    | 0.1416        | 0.1044             | 0.3295        |
+| ETH    | 0.2375        | 0.2387             | 0.1708        |
 
 ### Rolling (legacy, no explicit lag)
 Source: `rolling_results.csv`
@@ -113,17 +116,17 @@ Source: `rolling_results.csv`
 | BTC    | 0.9919        | 0.8383             |
 | ETH    | 0.9932        | 0.9181             |
 
-### Rolling (current, lag-aware: window=20, lag=20)
-Source: `rolling_results_lagged.csv`
+### Instantaneous (scaled proxy)
+Source: `inst_results_scaled.csv`
 
-| Symbol | Kalman DA R2 | Particle Filter R2 | GARCH(2,2) R2 |
-|--------|---------------|--------------------|---------------|
-| BTC    | 0.1416        | 0.1044             | 0.3295        |
-| ETH    | 0.2375        | 0.2387             | 0.1708        |
+| Symbol | Kalman Heston R2 | Particle Heston R2 | Rolling(20) R2 |
+|--------|-------------------|--------------------|----------------|
+| BTC    | -0.202            | -0.024             | 0.100          |
+| ETH    | -0.208            | -0.017             | 0.126          |
 
 ## Run
 
 ```bash
-python main.py --mode instantaneous --symbols BTC ETH --burn-in 200 --inst-scale 1.2533141373 --output inst_results_scaled.csv --plot --plot-dir plots
 python main.py --mode rolling --symbols BTC ETH --burn-in 200 --rolling-window 20 --rolling-lag 20 --output rolling_results_lagged.csv --plot --plot-dir plots
+python main.py --mode instantaneous --symbols BTC ETH --burn-in 200 --inst-scale 1.2533141373 --output inst_results_scaled.csv --plot --plot-dir plots
 ```

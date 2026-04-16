@@ -97,3 +97,9 @@
 - Request: apply the "plot last 1000 points" change in `main.py` (not only `hmm.py`).
 - Fix: added `--plot-points` (default `1000`) to `main.py`; rolling and instantaneous comparison plots now render only the most recent `N` points.
 - Validation: `python main.py --mode rolling --symbols BTC --burn-in 200 --rolling-window 20 --rolling-lag 20 --output rolling_results_lagged.csv --plot --plot-dir plots --plot-points 1000` completed and saved plot.
+
+### Incremental Update
+
+- Request: reorder README so rolling appears before instantaneous in approach, methodology, and results.
+- Fix: reordered sections accordingly and updated run command order.
+- Added summary note: instantaneous volatility attempt (log-return proxy based) is currently unreliable under extreme crypto fluctuations.
