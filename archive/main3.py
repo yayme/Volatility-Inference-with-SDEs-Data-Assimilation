@@ -32,48 +32,57 @@ def calculate_mse_for_symbol(symbol):
     
     # --- Data Assimilation (DA) methods ---
     # Naive DA
-    sigma_model_naive, sigma_est_naive = generic_DA(
+    sigma_model_naive, sigma_prior_naive, sigma_est_naive = generic_DA(
         df['sigma_obs'], predictor=heston_predictor, combiner=naive_combiner
     )
     df['sigma_model_naive'] = sigma_model_naive
+    df['sigma_prior_naive'] = sigma_prior_naive
     df['sigma_est_naive'] = sigma_est_naive
     
     # Kalman Filter DA
-    sigma_model_kf, sigma_est_kf = kalman_DA(
+    sigma_model_kf, sigma_prior_kf, sigma_est_kf = kalman_DA(
         df['sigma_obs'], Q=0.01, R=0.1  # process noise, measurement noise
     )
     df['sigma_model_kf'] = sigma_model_kf
+    df['sigma_prior_kf'] = sigma_prior_kf
     df['sigma_est_kf'] = sigma_est_kf
     
     # Particle Filter DA
-    sigma_model_pf, sigma_est_pf = particle_filter_DA(
+    sigma_model_pf, sigma_prior_pf, sigma_est_pf = particle_filter_DA(
         df['sigma_obs'], N_particles=100
     )
     df['sigma_model_pf'] = sigma_model_pf
+    df['sigma_prior_pf'] = sigma_prior_pf
     df['sigma_est_pf'] = sigma_est_pf
     
     # GARCH(1,1)
     returns = df['return'] * 100
     garch = arch_model(returns, vol='Garch', p=1, q=1, dist='normal')
-    res = garch.fit(disp='off')
-    sigma_garch = res.conditional_volatility / 100
-    df['sigma_garch'] = sigma_garch.values
+    res = garch.fit(last_obs=100, disp='off')
+    forecasts = res.forecast(horizon=1, start=100)
+    sigma_garch_full = np.full(len(returns), np.nan)
+    sigma_garch_full[:100] = res.conditional_volatility[:100] / 100
+    sigma_garch_full[100:] = np.sqrt(forecasts.variance['h.1'].values) / 100
+    df['sigma_garch'] = sigma_garch_full
     
     # GARCH(2,2)
     garch22 = arch_model(returns, vol='Garch', p=2, q=2, dist='normal')
-    res22 = garch22.fit(disp='off')
-    sigma_garch22 = res22.conditional_volatility / 100
-    df['sigma_garch22'] = sigma_garch22.values
+    res22 = garch22.fit(last_obs=100, disp='off')
+    forecasts22 = res22.forecast(horizon=1, start=100)
+    sigma_garch22_full = np.full(len(returns), np.nan)
+    sigma_garch22_full[:100] = res22.conditional_volatility[:100] / 100
+    sigma_garch22_full[100:] = np.sqrt(forecasts22.variance['h.1'].values) / 100
+    df['sigma_garch22'] = sigma_garch22_full
     
     # --- MSE CALCULATION ---
-    m1 = (~np.isnan(df['sigma_obs'])) & (~np.isnan(df['sigma_est_naive']))
-    mse_naive = mean_squared_error(df['sigma_obs'][m1], df['sigma_est_naive'][m1])
+    m1 = (~np.isnan(df['sigma_obs'])) & (~np.isnan(df['sigma_prior_naive']))
+    mse_naive = mean_squared_error(df['sigma_obs'][m1], df['sigma_prior_naive'][m1])
     
-    m2 = (~np.isnan(df['sigma_obs'])) & (~np.isnan(df['sigma_est_kf']))
-    mse_kf = mean_squared_error(df['sigma_obs'][m2], df['sigma_est_kf'][m2])
+    m2 = (~np.isnan(df['sigma_obs'])) & (~np.isnan(df['sigma_prior_kf']))
+    mse_kf = mean_squared_error(df['sigma_obs'][m2], df['sigma_prior_kf'][m2])
     
-    m3 = (~np.isnan(df['sigma_obs'])) & (~np.isnan(df['sigma_est_pf']))
-    mse_pf = mean_squared_error(df['sigma_obs'][m3], df['sigma_est_pf'][m3])
+    m3 = (~np.isnan(df['sigma_obs'])) & (~np.isnan(df['sigma_prior_pf']))
+    mse_pf = mean_squared_error(df['sigma_obs'][m3], df['sigma_prior_pf'][m3])
     
     m4 = (~np.isnan(df['sigma_obs'])) & (~np.isnan(df['sigma_garch']))
     mse_garch = mean_squared_error(df['sigma_obs'][m4], df['sigma_garch'][m4])
@@ -82,9 +91,9 @@ def calculate_mse_for_symbol(symbol):
     mse_garch22 = mean_squared_error(df['sigma_obs'][m5], df['sigma_garch22'][m5])
     
     # --- R² CALCULATION ---
-    r2_naive = r2_score(df['sigma_obs'][m1], df['sigma_est_naive'][m1])
-    r2_kf = r2_score(df['sigma_obs'][m2], df['sigma_est_kf'][m2])
-    r2_pf = r2_score(df['sigma_obs'][m3], df['sigma_est_pf'][m3])
+    r2_naive = r2_score(df['sigma_obs'][m1], df['sigma_prior_naive'][m1])
+    r2_kf = r2_score(df['sigma_obs'][m2], df['sigma_prior_kf'][m2])
+    r2_pf = r2_score(df['sigma_obs'][m3], df['sigma_prior_pf'][m3])
     r2_garch = r2_score(df['sigma_obs'][m4], df['sigma_garch'][m4])
     r2_garch22 = r2_score(df['sigma_obs'][m5], df['sigma_garch22'][m5])
     

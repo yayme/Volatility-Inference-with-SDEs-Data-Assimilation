@@ -49,33 +49,37 @@ def infer_instantaneous_volatility(symbol):
     
     # 1. Naive Heston DA
     print(f"  Running Naive Heston DA...")
-    sigma_model_naive, sigma_est_naive = naive_heston_DA(prices, alpha=0.3)
+    sigma_model_naive, sigma_prior_naive, sigma_est_naive = naive_heston_DA(prices, alpha=0.3)
     results_df['heston_naive_model'] = sigma_model_naive
+    results_df['heston_naive_prior'] = sigma_prior_naive
     results_df['heston_naive_est'] = sigma_est_naive
     
     # 2. Generic Heston DA 
     print(f"  Running Generic Heston DA...")
-    sigma_model_generic, sigma_est_generic = generic_heston_DA(
+    sigma_model_generic, sigma_prior_generic, sigma_est_generic = generic_heston_DA(
         prices, predictor=lambda s, t: heston_predictor(s, t), 
         combiner=lambda pred, obs: naive_combiner(pred, obs, alpha=0.2)
     )
     results_df['heston_generic_model'] = sigma_model_generic
+    results_df['heston_generic_prior'] = sigma_prior_generic
     results_df['heston_generic_est'] = sigma_est_generic
     
     # 3. Kalman Heston DA
     print(f"  Running Kalman Heston DA...")
-    sigma_model_kalman, sigma_est_kalman = kalman_heston_DA(
+    sigma_model_kalman, sigma_prior_kalman, sigma_est_kalman = kalman_heston_DA(
         prices, R=1e-4, Q=0.01
     )
     results_df['heston_kalman_model'] = sigma_model_kalman
+    results_df['heston_kalman_prior'] = sigma_prior_kalman
     results_df['heston_kalman_est'] = sigma_est_kalman
     
     # 4. Particle Filter Heston DA
     print(f"  Running Particle Filter Heston DA...")
-    sigma_model_pf, sigma_est_pf = particle_filter_heston_DA(
+    sigma_model_pf, sigma_prior_pf, sigma_est_pf = particle_filter_heston_DA(
         prices, N_particles=150, R=0.001
     )
     results_df['heston_pf_model'] = sigma_model_pf
+    results_df['heston_pf_prior'] = sigma_prior_pf
     results_df['heston_pf_est'] = sigma_est_pf
     
     # Add symbol column
@@ -108,10 +112,10 @@ def calculate_performance_metrics(all_results):
         
         # Calculate MSE for each method
         methods = {
-            'Naive Heston': 'heston_naive_est',
-            'Generic Heston': 'heston_generic_est', 
-            'Kalman Heston': 'heston_kalman_est',
-            'Particle Filter': 'heston_pf_est',
+            'Naive Heston': 'heston_naive_prior',
+            'Generic Heston': 'heston_generic_prior', 
+            'Kalman Heston': 'heston_kalman_prior',
+            'Particle Filter': 'heston_pf_prior',
             'Rolling Vol (20)': 'rolling_vol_20',
             'Rolling Vol (50)': 'rolling_vol_50',
             'Rolling Vol (100)': 'rolling_vol_100'

@@ -39,35 +39,39 @@ print("Running Heston-based Data Assimilation methods...")
 # --- Heston-based Data Assimilation (DA) methods ---
 # 1. Naive Heston DA
 print("  Running Naive Heston DA...")
-sigma_model_naive, sigma_est_naive = naive_heston_DA(prices, alpha=0.3)
+sigma_model_naive, sigma_prior_naive, sigma_est_naive = naive_heston_DA(prices, alpha=0.3)
 df['heston_naive_model'] = sigma_model_naive
-df['heston_naive_est'] = sigma_est_naive
+df['heston_naive_prior'] = sigma_prior_naive
+df['heston_naive_prior'] = sigma_est_naive
 
 # 2. Generic Heston DA 
 print("  Running Generic Heston DA...")
-sigma_model_generic, sigma_est_generic = generic_heston_DA(
+sigma_model_generic, sigma_prior_generic, sigma_est_generic = generic_heston_DA(
     prices, 
     predictor=lambda s, t: heston_predictor(s, t), 
     combiner=lambda pred, obs: naive_combiner(pred, obs, alpha=0.2)
 )
 df['heston_generic_model'] = sigma_model_generic
-df['heston_generic_est'] = sigma_est_generic
+df['heston_generic_prior'] = sigma_prior_generic
+df['heston_generic_prior'] = sigma_est_generic
 
 # 3. Kalman Heston DA
 print("  Running Kalman Heston DA...")
-sigma_model_kalman, sigma_est_kalman = kalman_heston_DA(
+sigma_model_kalman, sigma_prior_kalman, sigma_est_kalman = kalman_heston_DA(
     prices, R=1e-4, Q=0.01
 )
 df['heston_kalman_model'] = sigma_model_kalman
-df['heston_kalman_est'] = sigma_est_kalman
+df['heston_kalman_prior'] = sigma_prior_kalman
+df['heston_kalman_prior'] = sigma_est_kalman
 
 # 4. Particle Filter Heston DA
 print("  Running Particle Filter Heston DA...")
-sigma_model_pf, sigma_est_pf = particle_filter_heston_DA(
+sigma_model_pf, sigma_prior_pf, sigma_est_pf = particle_filter_heston_DA(
     prices, N_particles=150, R=0.001
 )
 df['heston_pf_model'] = sigma_model_pf
-df['heston_pf_est'] = sigma_est_pf
+df['heston_pf_prior'] = sigma_prior_pf
+df['heston_pf_prior'] = sigma_est_pf
 
 # GARCH models for comparison
 print("  Running GARCH models...")
@@ -75,15 +79,19 @@ print("  Running GARCH models...")
 log_returns_subset = df['log_return']
 returns_pct = log_returns_subset * 100
 garch = arch_model(returns_pct, vol='Garch', p=1, q=1, dist='normal')
-res = garch.fit(disp='off')
-sigma_garch = res.conditional_volatility / 100
-df['sigma_garch'] = sigma_garch.values
+res = garch.fit(last_obs=100, disp='off')
+forecasts = res.forecast(horizon=1, start=100)
+sigma_garch = np.sqrt(forecasts.variance['h.1'].values) / 100
+sigma_garch[:100] = res.conditional_volatility[:100] / 100
+df['sigma_garch'] = sigma_garch
 
 # GARCH(2,2)
 garch22 = arch_model(returns_pct, vol='Garch', p=2, q=2, dist='normal')
-res22 = garch22.fit(disp='off')
-sigma_garch22 = res22.conditional_volatility / 100
-df['sigma_garch22'] = sigma_garch22.values
+res22 = garch22.fit(last_obs=100, disp='off')
+forecasts22 = res22.forecast(horizon=1, start=100)
+sigma_garch22 = np.sqrt(forecasts22.variance['h.1'].values) / 100
+sigma_garch22[:100] = res22.conditional_volatility[:100] / 100
+df['sigma_garch22'] = sigma_garch22
 
 print("Creating plots...")
 
@@ -92,10 +100,10 @@ print("Creating plots...")
 # 1) Observed Instantaneous Volatility vs Heston DA estimates
 plt.figure(figsize=(14, 6))
 plt.plot(df['sigma_obs'], label='Instantaneous Volatility (|log returns|)', color='red', alpha=0.8)
-plt.plot(df['heston_naive_est'], label='Naive Heston DA', color='blue', alpha=0.5)
-plt.plot(df['heston_generic_est'], label='Generic Heston DA', color='cyan', alpha=0.5)
-plt.plot(df['heston_kalman_est'], label='Kalman Heston DA', color='green', alpha=0.5)
-plt.plot(df['heston_pf_est'], label='Particle Filter Heston DA', color='purple', alpha=0.5)
+plt.plot(df['heston_naive_prior'], label='Naive Heston DA', color='blue', alpha=0.5)
+plt.plot(df['heston_generic_prior'], label='Generic Heston DA', color='cyan', alpha=0.5)
+plt.plot(df['heston_kalman_prior'], label='Kalman Heston DA', color='green', alpha=0.5)
+plt.plot(df['heston_pf_prior'], label='Particle Filter Heston DA', color='purple', alpha=0.5)
 plt.plot(df['rolling_vol_100'], label='Rolling Vol (100)', color='orange', alpha=0.5)
 plt.xlabel('Time')
 plt.ylabel('Volatility')
@@ -107,7 +115,7 @@ plt.show()
 # 2) Individual comparison: Kalman Heston
 plt.figure(figsize=(10,4))
 plt.plot(df['sigma_obs'], label='Instantaneous Volatility', color='red', alpha=0.8)
-plt.plot(df['heston_kalman_est'], label='Kalman Heston Estimate', color='green', alpha=0.5)
+plt.plot(df['heston_kalman_prior'], label='Kalman Heston Estimate', color='green', alpha=0.5)
 plt.title('Instantaneous Volatility vs Kalman Heston Estimate')
 plt.legend()
 plt.tight_layout()
@@ -116,7 +124,7 @@ plt.show()
 # 3) Individual comparison: Particle Filter Heston
 plt.figure(figsize=(10,4))
 plt.plot(df['sigma_obs'], label='Instantaneous Volatility', color='red', alpha=0.8)
-plt.plot(df['heston_pf_est'], label='Particle Filter Heston Estimate', color='purple', alpha=0.5)
+plt.plot(df['heston_pf_prior'], label='Particle Filter Heston Estimate', color='purple', alpha=0.5)
 plt.title('Instantaneous Volatility vs Particle Filter Heston Estimate')
 plt.legend()
 plt.tight_layout()
@@ -126,9 +134,9 @@ plt.show()
 plt.figure(figsize=(12,5))
 start, end = 100, 600  # adjust as needed for your data
 plt.plot(df['sigma_obs'].iloc[start:end], label='Instantaneous Volatility', color='red', alpha=0.8)
-plt.plot(df['heston_kalman_est'].iloc[start:end], label='Kalman Heston', color='green', alpha=0.5)
-plt.plot(df['heston_pf_est'].iloc[start:end], label='Particle Filter Heston', color='purple', alpha=0.5)
-plt.plot(df['heston_generic_est'].iloc[start:end], label='Generic Heston', color='cyan', alpha=0.5)
+plt.plot(df['heston_kalman_prior'].iloc[start:end], label='Kalman Heston', color='green', alpha=0.5)
+plt.plot(df['heston_pf_prior'].iloc[start:end], label='Particle Filter Heston', color='purple', alpha=0.5)
+plt.plot(df['heston_generic_prior'].iloc[start:end], label='Generic Heston', color='cyan', alpha=0.5)
 plt.title('Heston DA Volatility Estimates (Closeup View)')
 plt.legend()
 plt.tight_layout()
@@ -137,7 +145,7 @@ plt.show()
 # 5) Kalman Filter: Model Prior vs DA Estimate
 plt.figure(figsize=(14, 6))
 plt.plot(df['heston_kalman_model'], label='Kalman Heston Model Prior', linestyle='--', color='lightblue', alpha=0.5)
-plt.plot(df['heston_kalman_est'], label='Kalman Heston DA', color='green', alpha=0.5)
+plt.plot(df['heston_kalman_prior'], label='Kalman Heston DA', color='green', alpha=0.5)
 plt.plot(df['sigma_obs'], label='Instantaneous Volatility', color='red', alpha=0.8)
 plt.xlabel('Time')
 plt.ylabel('Volatility')
@@ -149,7 +157,7 @@ plt.show()
 # 6) Particle Filter: Model Prior vs DA Estimate
 plt.figure(figsize=(14, 6))
 plt.plot(df['heston_pf_model'], label='Particle Filter Heston Model Prior', linestyle='--', color='plum', alpha=0.5)
-plt.plot(df['heston_pf_est'], label='Particle Filter Heston DA', color='purple', alpha=0.5)
+plt.plot(df['heston_pf_prior'], label='Particle Filter Heston DA', color='purple', alpha=0.5)
 plt.plot(df['sigma_obs'], label='Instantaneous Volatility', color='red', alpha=0.8)
 plt.xlabel('Time')
 plt.ylabel('Volatility')
@@ -160,8 +168,8 @@ plt.show()
 
 # 7) Heston DA Estimates vs GARCH vs Rolling Volatility
 plt.figure(figsize=(14, 6))
-plt.plot(df['heston_kalman_est'], label='Kalman Heston DA', color='green', alpha=0.5)
-plt.plot(df['heston_pf_est'], label='Particle Filter Heston DA', color='purple', alpha=0.5)
+plt.plot(df['heston_kalman_prior'], label='Kalman Heston DA', color='green', alpha=0.5)
+plt.plot(df['heston_pf_prior'], label='Particle Filter Heston DA', color='purple', alpha=0.5)
 plt.plot(df['sigma_garch'], label='GARCH(1,1)', color='orange', alpha=0.5)
 plt.plot(df['sigma_garch22'], label='GARCH(2,2)', color='brown', alpha=0.5)
 plt.plot(df['rolling_vol_100'], label='Rolling Vol (100)', color='gray', alpha=0.5)
@@ -191,17 +199,17 @@ plt.show()
 print("\nCalculating MSE performance metrics...")
 
 # Use valid data points for MSE calculation
-m1 = (~np.isnan(df['sigma_obs'])) & (~np.isnan(df['heston_naive_est']))
-mse_naive = mean_squared_error(df['sigma_obs'][m1], df['heston_naive_est'][m1])
+m1 = (~np.isnan(df['sigma_obs'])) & (~np.isnan(df['heston_naive_prior']))
+mse_naive = mean_squared_error(df['sigma_obs'][m1], df['heston_naive_prior'][m1])
 
-m2 = (~np.isnan(df['sigma_obs'])) & (~np.isnan(df['heston_generic_est']))
-mse_generic = mean_squared_error(df['sigma_obs'][m2], df['heston_generic_est'][m2])
+m2 = (~np.isnan(df['sigma_obs'])) & (~np.isnan(df['heston_generic_prior']))
+mse_generic = mean_squared_error(df['sigma_obs'][m2], df['heston_generic_prior'][m2])
 
-m3 = (~np.isnan(df['sigma_obs'])) & (~np.isnan(df['heston_kalman_est']))
-mse_kalman = mean_squared_error(df['sigma_obs'][m3], df['heston_kalman_est'][m3])
+m3 = (~np.isnan(df['sigma_obs'])) & (~np.isnan(df['heston_kalman_prior']))
+mse_kalman = mean_squared_error(df['sigma_obs'][m3], df['heston_kalman_prior'][m3])
 
-m4 = (~np.isnan(df['sigma_obs'])) & (~np.isnan(df['heston_pf_est']))
-mse_pf = mean_squared_error(df['sigma_obs'][m4], df['heston_pf_est'][m4])
+m4 = (~np.isnan(df['sigma_obs'])) & (~np.isnan(df['heston_pf_prior']))
+mse_pf = mean_squared_error(df['sigma_obs'][m4], df['heston_pf_prior'][m4])
 
 m5 = (~np.isnan(df['sigma_obs'])) & (~np.isnan(df['sigma_garch']))
 mse_garch = mean_squared_error(df['sigma_obs'][m5], df['sigma_garch'][m5])

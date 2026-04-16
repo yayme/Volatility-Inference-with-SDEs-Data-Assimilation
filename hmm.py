@@ -5,21 +5,7 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error, r2_score
 from arch import arch_model
 
-from DA_utility import (
-    compute_rolling_volatility,
-    heston_predictor,
-    generic_DA,
-    naive_combiner,
-    kalman_DA,
-    particle_filter_DA,
-)
-from DA_utility_heston import (
-    compute_returns,
-    naive_heston_DA,
-    generic_heston_DA,
-    kalman_heston_DA,
-    particle_filter_heston_DA,
-)
+from DA_utility import compute_rolling_volatility
 
 
 def fit_garch_variance(returns, p, q, warmup=200):
@@ -78,47 +64,113 @@ def save_comparison_plot(symbol, target, actual, methods, plot_dir, plot_points=
     plt.ylabel("volatility")
     plt.legend()
     plt.tight_layout()
-    file_path = f"{plot_dir}/{symbol}_{target}_comparison.png"
+    file_path = f"{plot_dir}/{symbol}_{target}_hmm_comparison.png"
     plt.savefig(file_path, dpi=140)
     plt.close()
     print(f"saved plot {file_path}")
 
 
-def run_rolling(
+def gaussian_pdf(x, means, variances):
+    variances = np.maximum(variances, 1e-10)
+    coef = 1.0 / np.sqrt(2.0 * np.pi * variances)
+    exponent = -0.5 * ((x - means) ** 2) / variances
+    return coef * np.exp(exponent)
+
+
+def fit_hmm_train(obs_train, n_states=3, n_iter=200, random_state=42):
+    try:
+        from hmmlearn.hmm import GaussianHMM
+    except ImportError as e:
+        raise ImportError("hmmlearn is required. Install with: pip install hmmlearn") from e
+
+    model = GaussianHMM(
+        n_components=n_states,
+        covariance_type="diag",
+        n_iter=n_iter,
+        random_state=random_state,
+    )
+    model.fit(obs_train.reshape(-1, 1))
+
+    means = model.means_.reshape(-1)
+    covars = model.covars_.reshape(-1)
+    return model.startprob_.copy(), model.transmat_.copy(), means, covars
+
+
+def hmm_online_prior(obs, startprob, transmat, means, variances):
+    n = len(obs)
+    n_states = len(means)
+    alpha = np.full(n_states, 1.0 / n_states)
+    prior = np.zeros(n)
+
+    for t in range(n):
+        if t == 0:
+            alpha_pred = startprob
+        else:
+            alpha_pred = alpha @ transmat
+
+        prior[t] = float(alpha_pred @ means)
+
+        lik = gaussian_pdf(obs[t], means, variances)
+        numer = alpha_pred * lik
+        s = np.sum(numer)
+        if (not np.isfinite(s)) or s <= 0:
+            alpha = alpha_pred / np.sum(alpha_pred)
+        else:
+            alpha = numer / s
+
+    return prior
+
+
+def run_symbol(
     symbol,
     burn_in,
     rolling_window=20,
     rolling_lag=20,
+    n_states=3,
+    train_ratio=0.7,
+    n_iter=200,
+    random_state=42,
     plot=False,
     plot_dir="plots",
     plot_points=1000,
 ):
     df = pd.read_csv(f"{symbol}_spot_full.csv")
     returns = df["bam_close"].pct_change().fillna(0)
-    sigma_target = compute_rolling_volatility(returns, window=rolling_window).fillna(0.0)
 
+    sigma_target = compute_rolling_volatility(returns, window=rolling_window).fillna(0.0)
     sigma_obs_da = sigma_target.shift(rolling_lag)
     if rolling_lag > 0:
         sigma_obs_da.iloc[:rolling_lag] = sigma_target.iloc[0]
     sigma_obs_da = sigma_obs_da.fillna(0.0)
 
-    _, sigma_prior_naive, _ = generic_DA(sigma_obs_da, predictor=heston_predictor, combiner=naive_combiner)
-    sigma_prior_kf, _ = kalman_DA(sigma_obs_da, Q=0.01, R=0.1)
-    sigma_prior_pf, _ = particle_filter_DA(sigma_obs_da, N_particles=150, R=0.001)
+    y_obs = sigma_obs_da.values
+    split_idx = max(2, int(len(y_obs) * train_ratio))
+
+    startprob, transmat, means, variances = fit_hmm_train(
+        y_obs[:split_idx],
+        n_states=n_states,
+        n_iter=n_iter,
+        random_state=random_state,
+    )
+    sigma_hmm_prior = hmm_online_prior(y_obs, startprob, transmat, means, variances)
 
     sigma_g11 = fit_garch_variance(returns, 1, 1, warmup=burn_in)
     sigma_g22 = fit_garch_variance(returns, 2, 2, warmup=burn_in)
 
     methods = {
-        "naive_da_prior": np.array(sigma_prior_naive),
-        "kalman_da_prior": np.array(sigma_prior_kf),
-        "particle_filter_prior": np.array(sigma_prior_pf),
+        "hmm_prior": sigma_hmm_prior,
         "garch_11": sigma_g11,
         "garch_22": sigma_g22,
+        "lagged_obs": y_obs,
     }
 
-    out = {"symbol": symbol, "target": f"rolling_vol_{rolling_window}_lag{rolling_lag}"}
+    out = {
+        "symbol": symbol,
+        "target": f"rolling_vol_{rolling_window}_lag{rolling_lag}",
+        "n_states": n_states,
+    }
     audit_by_method = {}
+
     y_true = sigma_target.values
     for name, pred in methods.items():
         mse, r2, audit = evaluate(y_true, pred, burn_in=burn_in)
@@ -139,73 +191,17 @@ def run_rolling(
     return out, audit_by_method
 
 
-def run_instantaneous(
-    symbol,
-    burn_in,
-    inst_scale=np.sqrt(np.pi / 2.0),
-    plot=False,
-    plot_dir="plots",
-    plot_points=1000,
-):
-    df = pd.read_csv(f"{symbol}_spot_full.csv")
-    prices = df["bam_close"]
-    log_returns = compute_returns(prices)
-    sigma_target = np.abs(log_returns) * inst_scale
-
-    _, sigma_prior_naive, _ = naive_heston_DA(prices, alpha=0.3)
-    _, sigma_prior_generic, _ = generic_heston_DA(
-        prices,
-        predictor=lambda s, t: heston_predictor(s, t),
-        combiner=lambda pred, obs: naive_combiner(pred, obs, alpha=0.2),
-    )
-    sigma_prior_kf, _ = kalman_heston_DA(prices, R=1e-4, Q=0.01)
-    sigma_prior_pf, _ = particle_filter_heston_DA(prices, N_particles=150, R=0.001)
-
-    roll20 = compute_rolling_volatility(log_returns, window=20).shift(1).values
-    roll50 = compute_rolling_volatility(log_returns, window=50).shift(1).values
-    roll100 = compute_rolling_volatility(log_returns, window=100).shift(1).values
-
-    methods = {
-        "naive_heston_prior": np.array(sigma_prior_naive),
-        "generic_heston_prior": np.array(sigma_prior_generic),
-        "kalman_heston_prior": np.array(sigma_prior_kf),
-        "particle_heston_prior": np.array(sigma_prior_pf),
-        "rolling_20": roll20,
-        "rolling_50": roll50,
-        "rolling_100": roll100,
-    }
-
-    out = {"symbol": symbol, "target": "inst_sigma_proxy"}
-    audit_by_method = {}
-    y_true = sigma_target.values
-    for name, pred in methods.items():
-        mse, r2, audit = evaluate(y_true, pred, burn_in=burn_in)
-        out[f"mse_{name}"] = mse
-        out[f"r2_{name}"] = r2
-        audit_by_method[name] = audit
-
-    if plot:
-        save_comparison_plot(
-            symbol=symbol,
-            target="inst_sigma_proxy",
-            actual=y_true,
-            methods=methods,
-            plot_dir=plot_dir,
-            plot_points=plot_points,
-        )
-
-    return out, audit_by_method
-
-
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["rolling", "instantaneous"], default="rolling")
     parser.add_argument("--symbols", nargs="+", default=["BNB", "BTC", "TRX", "XRP", "ETH"])
-    parser.add_argument("--output", default="results_summary.csv")
+    parser.add_argument("--output", default="hmm_results.csv")
     parser.add_argument("--burn-in", type=int, default=200)
     parser.add_argument("--rolling-window", type=int, default=20)
     parser.add_argument("--rolling-lag", type=int, default=20)
-    parser.add_argument("--inst-scale", type=float, default=float(np.sqrt(np.pi / 2.0)))
+    parser.add_argument("--n-states", type=int, default=3)
+    parser.add_argument("--train-ratio", type=float, default=0.7)
+    parser.add_argument("--n-iter", type=int, default=200)
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--plot", action="store_true")
     parser.add_argument("--plot-dir", default="plots")
     parser.add_argument("--plot-points", type=int, default=1000)
@@ -218,25 +214,19 @@ def main():
     rows = []
     for symbol in args.symbols:
         try:
-            if args.mode == "rolling":
-                row, audit = run_rolling(
-                    symbol,
-                    args.burn_in,
-                    rolling_window=args.rolling_window,
-                    rolling_lag=args.rolling_lag,
-                    plot=args.plot,
-                    plot_dir=args.plot_dir,
-                    plot_points=args.plot_points,
-                )
-            else:
-                row, audit = run_instantaneous(
-                    symbol,
-                    args.burn_in,
-                    inst_scale=args.inst_scale,
-                    plot=args.plot,
-                    plot_dir=args.plot_dir,
-                    plot_points=args.plot_points,
-                )
+            row, audit = run_symbol(
+                symbol=symbol,
+                burn_in=args.burn_in,
+                rolling_window=args.rolling_window,
+                rolling_lag=args.rolling_lag,
+                n_states=args.n_states,
+                train_ratio=args.train_ratio,
+                n_iter=args.n_iter,
+                random_state=args.seed,
+                plot=args.plot,
+                plot_dir=args.plot_dir,
+                plot_points=args.plot_points,
+            )
             rows.append(row)
             print_eval_audit(symbol, row["target"], audit)
             print(f"processed {symbol}")
