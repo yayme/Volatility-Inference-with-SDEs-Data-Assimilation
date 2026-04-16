@@ -41,7 +41,7 @@ $$
 Rolling target (window `w`) with lag-aware DA observation (`L`):
 
 $$
-y_t^{(roll)} = \operatorname{std}(r_{t-w+1:t}),
+y_t^{(roll)} = \mathrm{std}(r_{t-w+1:t}),
 \quad z_t^{(DA)} = y_{t-L}^{(roll)}
 $$
 
